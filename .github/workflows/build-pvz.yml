@@ -2,19 +2,19 @@ name: Build PlantsVsZombies APK
 
 on:
   push:
-    branches: [ "master", "master" ]
+    branches: [ "master" ]
   pull_request:
-    branches: [ "master", "master" ]
+    branches: [ "master" ]
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04  # 必须用 20.04 支持 JDK 8
+    runs-on: ubuntu-22.04
 
     env:
       JAVA_VERSION: '8'
-      # 使用兼容 JDK 8 的 cmdline-tools 版本（6.0）
-      CMDLINE_TOOLS_URL: https://dl.google.com/android/repository/commandlinetools-linux-7583363_latest.zip
+      # Use cmdline-tools v6.0 (last version compatible with JDK 8)
+      CMDLINE_TOOLS_URL: https://dl.google.com/android/repository/commandlinetools-linux-6858069_latest.zip
       ANDROID_NDK_VERSION: '21.4.7075529'  # r21e
 
     steps:
@@ -29,44 +29,43 @@ jobs:
           distribution: 'temurin'
           java-version: ${{ env.JAVA_VERSION }}
 
-      - name: 🐍 Install Python 3, CMake, unzip
+      - name: 🐍 Install dependencies
         run: |
           sudo apt update
           sudo apt install -y python3 python3-pip cmake unzip wget
 
-      - name: 🤖 Manually install Android SDK (with old cmdline-tools for JDK 8)
+      - name: 🤖 Install Android SDK (with cmdline-tools v6.0 for JDK 8)
         run: |
           ANDROID_HOME="$HOME/android-sdk"
-          mkdir -p "$ANDROID_HOME/cmdline-tools/latest"
-          
+          mkdir -p "$ANDROID_HOME/cmdline-tools"
+
           wget -q "${CMDLINE_TOOLS_URL}" -O cmdline-tools.zip
-          unzip -q cmdline-tools.zip -d cmdline-tools-temp
-          
-          # Move the actual contents (bin/, lib/, etc.) into latest/
-          mv cmdline-tools-temp/* "$ANDROID_HOME/cmdline-tools/latest/"
-          
-          rm -rf cmdline-tools-temp cmdline-tools.zip
-          
+          unzip -q cmdline-tools.zip -d "$ANDROID_HOME/cmdline-tools"
+          # Now we have: $ANDROID_HOME/cmdline-tools/cmdline-tools/
+          # Rename inner folder to 'latest'
+          mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+
           echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
           echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
 
-      - name: 📝 Accept Android SDK licenses (now works with JDK 8)
+      - name: 📝 Accept Android SDK licenses
         run: |
           yes | sdkmanager --licenses >/dev/null 2>&1 || true
 
-      - name: 📥 Install Android platform and build-tools
+      - name: 📥 Install Android platform, build-tools, and NDK
         run: |
-          sdkmanager "platform-tools" "platforms;android-30" "build-tools;30.0.3"
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-30" \
+            "build-tools;30.0.3" \
+            "ndk;${ANDROID_NDK_VERSION}"
 
-      - name: 📥 Install NDK r21e
+      - name: 🔧 Set environment variables for Cocos2d-x
         run: |
-          sdkmanager "ndk;${ANDROID_NDK_VERSION}"
-          echo "ANDROID_NDK_ROOT=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> $GITHUB_ENV
-
-      - name: 🔧 Set Cocos environment
-        run: |
-          echo "NDK_ROOT=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> $GITHUB_ENV
+          NDK_ROOT="$ANDROID_HOME/ndk/${ANDROID_NDK_VERSION}"
+          echo "NDK_ROOT=$NDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$NDK_ROOT" >> "$GITHUB_ENV"
 
       - name: 🏗️ Build with Cocos2d-x
         run: |
@@ -93,7 +92,7 @@ jobs:
             find . -name "*.apk"
             exit 1
           fi
-          echo "apk_path=$apk" >> $GITHUB_OUTPUT
+          echo "apk_path=$apk" >> "$GITHUB_OUTPUT"
 
       - name: ⬆️ Upload APK
         uses: actions/upload-artifact@v4
