@@ -1,0 +1,84 @@
+name: Build PlantsVsZombies APK
+
+on:
+  push:
+    branches: [ "master", "master" ]
+  pull_request:
+    branches: [ "master", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      # Cocos2d-x 通常兼容 JDK 8 或 11；这里使用 JDK 11（ubuntu-latest 自带）
+      JAVA_VERSION: '11'
+      # 使用稳定版 NDK（与 Cocos2d-x 兼容性好）
+      ANDROID_NDK_VERSION: '21.4.7075529'  # r21e
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive  # 重要！如果 Cocos2d-x 引擎是子模块
+
+      - name: ☕ Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: 🐍 Install Python 3 and pip
+        run: |
+          sudo apt update
+          sudo apt install -y python3 python3-pip
+
+      - name: 📦 Install CMake and other build tools
+        run: sudo apt install -y cmake
+
+      - name: 🤖 Set up Android SDK
+        uses: android-actions/setup-android@v3
+        # 此 Action 会自动设置 ANDROID_HOME 和 PATH
+
+      - name: 📥 Install Android NDK r21e
+        run: |
+          echo "Installing NDK r21e..."
+          sdkmanager "ndk;${ANDROID_NDK_VERSION}"
+          echo "ANDROID_NDK_ROOT=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> $GITHUB_ENV
+
+      - name: 🔧 Set environment variables for Cocos2d-x
+        run: |
+          echo "ANDROID_SDK_ROOT=${ANDROID_HOME}" >> $GITHUB_ENV
+          echo "NDK_ROOT=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> $GITHUB_ENV
+
+      - name: 🏗️ Build APK using Cocos2d-x
+        run: |
+          # 确保 cocos 脚本可执行（通常在引擎目录）
+          # 假设 Cocos2d-x 引擎在 ./cocos2d/ 目录（常见结构）
+          if [ -f ./cocos2d/cocos.py ]; then
+            python3 ./cocos2d/cocos.py compile -p android --android-studio --app-abi arm64-v8a
+          elif [ -f ./tools/cocos2d-console/bin/cocos ]; then
+            ./tools/cocos2d-console/bin/cocos compile -p android --android-studio --app-abi arm64-v8a
+          else
+            echo "❌ Could not find cocos compile script!"
+            exit 1
+          fi
+
+      - name: 🔍 Locate APK
+        id: find_apk
+        run: |
+          apk_path=$(find . -path "*/proj.android/app/build/outputs/apk/*/*.apk" | head -n1)
+          if [ -z "$apk_path" ]; then
+            echo "❌ No APK found!"
+            exit 1
+          fi
+          echo "apk_path=$apk_path" >> $GITHUB_OUTPUT
+          echo "Found APK at: $apk_path"
+
+      - name: ⬆️ Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PlantsVsZombies-Android
+          path: ${{ steps.find_apk.outputs.apk_path }}
+          retention-days: 7
