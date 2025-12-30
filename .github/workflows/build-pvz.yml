@@ -2,10 +2,11 @@ name: Build PlantsVsZombies APK
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "master", "master" ]
   pull_request:
-    branches: [ "master" ]
+    branches: [ "master", "master" ]
   workflow_dispatch:
+
 
 jobs:
   build:
@@ -67,20 +68,10 @@ jobs:
           echo "NDK_ROOT=$NDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=$NDK_ROOT" >> "$GITHUB_ENV"
 
-      - name: 🏗️ Build APK with Gradle
-        run: |
-          if [ -d ./proj.android ]; then
-            cd proj.android
-          elif [ -d ./android ]; then
-            cd android
-          else
-            echo "❌ No Android project directory found!"
-            ls -la
-            exit 1
-          fi
-
-          chmod +x ./gradlew
-          ./gradlew assembleDebug
+      # 5. 编译 Debug APK
+      # Gradle 会自动处理 Hilt (KSP) 代码生成和 SDK 下载
+      - name: 🏗️ Build with Gradle
+        run: ./gradlew assembleDebug --stacktrace
 
       - name: 🔍 Locate APK
         id: find_apk
