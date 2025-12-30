@@ -9,19 +9,18 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # 👇 显式指定 Ubuntu 20.04（关键！）
+    runs-on: ubuntu-20.04
 
     env:
-      # Cocos2d-x 通常兼容 JDK 8 或 11；这里使用 JDK 11（ubuntu-latest 自带）
-      JAVA_VERSION: '11'
-      # 使用稳定版 NDK（与 Cocos2d-x 兼容性好）
-      ANDROID_NDK_VERSION: '21.4.7075529'  # r21e
+      JAVA_VERSION: '8'                    # Cocos2d-x 推荐 JDK 8
+      ANDROID_NDK_VERSION: '21.4.7075529'  # NDK r21e
 
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: recursive  # 重要！如果 Cocos2d-x 引擎是子模块
+          submodules: recursive
 
       - name: ☕ Set up JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
@@ -34,12 +33,11 @@ jobs:
           sudo apt update
           sudo apt install -y python3 python3-pip
 
-      - name: 📦 Install CMake and other build tools
-        run: sudo apt install -y cmake
+      - name: 📦 Install CMake, unzip, wget
+        run: sudo apt install -y cmake unzip wget
 
       - name: 🤖 Set up Android SDK
         uses: android-actions/setup-android@v3
-        # 此 Action 会自动设置 ANDROID_HOME 和 PATH
 
       - name: 📥 Install Android NDK r21e
         run: |
@@ -47,34 +45,40 @@ jobs:
           sdkmanager "ndk;${ANDROID_NDK_VERSION}"
           echo "ANDROID_NDK_ROOT=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> $GITHUB_ENV
 
-      - name: 🔧 Set environment variables for Cocos2d-x
+      - name: 🔧 Set Cocos2d-x environment variables
         run: |
           echo "ANDROID_SDK_ROOT=${ANDROID_HOME}" >> $GITHUB_ENV
           echo "NDK_ROOT=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> $GITHUB_ENV
 
       - name: 🏗️ Build APK using Cocos2d-x
         run: |
-          # 确保 cocos 脚本可执行（通常在引擎目录）
-          # 假设 Cocos2d-x 引擎在 ./cocos2d/ 目录（常见结构）
+          # 尝试常见 cocos 脚本路径
           if [ -f ./cocos2d/cocos.py ]; then
             python3 ./cocos2d/cocos.py compile -p android --android-studio --app-abi arm64-v8a
           elif [ -f ./tools/cocos2d-console/bin/cocos ]; then
             ./tools/cocos2d-console/bin/cocos compile -p android --android-studio --app-abi arm64-v8a
+          elif [ -d ./proj.android ]; then
+            # 如果已预生成 Android 项目，直接用 Gradle（需确保 jni 已存在）
+            cd proj.android
+            chmod +x gradlew
+            ./gradlew assembleDebug
           else
-            echo "❌ Could not find cocos compile script!"
+            echo "❌ No valid build entry found!"
+            ls -la
             exit 1
           fi
 
-      - name: 🔍 Locate APK
+      - name: 🔍 Find APK file
         id: find_apk
         run: |
-          apk_path=$(find . -path "*/proj.android/app/build/outputs/apk/*/*.apk" | head -n1)
-          if [ -z "$apk_path" ]; then
-            echo "❌ No APK found!"
+          apk=$(find . -path "*/outputs/apk/*/*.apk" -type f | head -n1)
+          if [ -z "$apk" ]; then
+            echo "❌ APK not found!"
+            find . -name "*.apk"  # debug
             exit 1
           fi
-          echo "apk_path=$apk_path" >> $GITHUB_OUTPUT
-          echo "Found APK at: $apk_path"
+          echo "apk_path=$apk" >> $GITHUB_OUTPUT
+          echo "Found APK: $apk"
 
       - name: ⬆️ Upload APK Artifact
         uses: actions/upload-artifact@v4
