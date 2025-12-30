@@ -10,7 +10,7 @@ on:
 jobs:
   build:
     # 👇 显式指定 Ubuntu 20.04（关键！）
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
 
     env:
       JAVA_VERSION: '8'                    # Cocos2d-x 推荐 JDK 8
