@@ -9,12 +9,13 @@ on:
 
 jobs:
   build:
-    # 👇 显式指定 Ubuntu 20.04（关键！）
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-22.04  # 必须用 20.04 支持 JDK 8
 
     env:
-      JAVA_VERSION: '8'                    # Cocos2d-x 推荐 JDK 8
-      ANDROID_NDK_VERSION: '21.4.7075529'  # NDK r21e
+      JAVA_VERSION: '8'
+      # 使用兼容 JDK 8 的 cmdline-tools 版本（6.0）
+      CMDLINE_TOOLS_URL: https://dl.google.com/android/repository/commandlinetools-linux-7583363_latest.zip
+      ANDROID_NDK_VERSION: '21.4.7075529'  # r21e
 
     steps:
       - name: 📥 Checkout repository
@@ -28,59 +29,73 @@ jobs:
           distribution: 'temurin'
           java-version: ${{ env.JAVA_VERSION }}
 
-      - name: 🐍 Install Python 3 and pip
+      - name: 🐍 Install Python 3, CMake, unzip
         run: |
           sudo apt update
-          sudo apt install -y python3 python3-pip
+          sudo apt install -y python3 python3-pip cmake unzip wget
 
-      - name: 📦 Install CMake, unzip, wget
-        run: sudo apt install -y cmake unzip wget
-
-      - name: 🤖 Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: 📥 Install Android NDK r21e
+      - name: 🤖 Manually install Android SDK (with old cmdline-tools for JDK 8)
         run: |
-          echo "Installing NDK r21e..."
+          export ANDROID_HOME="$HOME/android-sdk"
+          mkdir -p ${ANDROID_HOME}
+          
+          # 下载并解压旧版 cmdline-tools（v6.0，兼容 JDK 8）
+          wget -q ${CMDLINE_TOOLS_URL} -O cmdline-tools.zip
+          unzip -q cmdline-tools.zip
+          mkdir -p ${ANDROID_HOME}/cmdline-tools/latest
+          mv cmdline-tools/* ${ANDROID_HOME}/cmdline-tools/latest/
+          rm -rf cmdline-tools cmdline-tools.zip
+          
+          # 设置环境变量
+          echo "ANDROID_HOME=${ANDROID_HOME}" >> $GITHUB_ENV
+          echo "${ANDROID_HOME}/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "${ANDROID_HOME}/platform-tools" >> $GITHUB_PATH
+
+      - name: 📝 Accept Android SDK licenses (now works with JDK 8)
+        run: |
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+
+      - name: 📥 Install Android platform and build-tools
+        run: |
+          sdkmanager "platform-tools" "platforms;android-30" "build-tools;30.0.3"
+
+      - name: 📥 Install NDK r21e
+        run: |
           sdkmanager "ndk;${ANDROID_NDK_VERSION}"
           echo "ANDROID_NDK_ROOT=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> $GITHUB_ENV
 
-      - name: 🔧 Set Cocos2d-x environment variables
+      - name: 🔧 Set Cocos environment
         run: |
-          echo "ANDROID_SDK_ROOT=${ANDROID_HOME}" >> $GITHUB_ENV
           echo "NDK_ROOT=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> $GITHUB_ENV
 
-      - name: 🏗️ Build APK using Cocos2d-x
+      - name: 🏗️ Build with Cocos2d-x
         run: |
-          # 尝试常见 cocos 脚本路径
           if [ -f ./cocos2d/cocos.py ]; then
             python3 ./cocos2d/cocos.py compile -p android --android-studio --app-abi arm64-v8a
           elif [ -f ./tools/cocos2d-console/bin/cocos ]; then
             ./tools/cocos2d-console/bin/cocos compile -p android --android-studio --app-abi arm64-v8a
           elif [ -d ./proj.android ]; then
-            # 如果已预生成 Android 项目，直接用 Gradle（需确保 jni 已存在）
             cd proj.android
             chmod +x gradlew
             ./gradlew assembleDebug
           else
-            echo "❌ No valid build entry found!"
+            echo "❌ No build entry found!"
             ls -la
             exit 1
           fi
 
-      - name: 🔍 Find APK file
+      - name: 🔍 Find APK
         id: find_apk
         run: |
           apk=$(find . -path "*/outputs/apk/*/*.apk" -type f | head -n1)
           if [ -z "$apk" ]; then
             echo "❌ APK not found!"
-            find . -name "*.apk"  # debug
+            find . -name "*.apk"
             exit 1
           fi
           echo "apk_path=$apk" >> $GITHUB_OUTPUT
-          echo "Found APK: $apk"
 
-      - name: ⬆️ Upload APK Artifact
+      - name: ⬆️ Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: PlantsVsZombies-Android
